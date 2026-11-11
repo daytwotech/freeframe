@@ -117,6 +117,12 @@ That's it. Traefik will:
 
 > **Requirements:** Your domain's DNS A record must point to your server, and ports 80 + 443 must be open. Traefik needs port 80 for the ACME HTTP challenge even when serving HTTPS.
 
+### How Traefik reaches Docker
+
+Traefik finds services by reading container labels from Docker. It does not mount the Docker socket itself: the `socket-proxy` service holds the socket and answers only the read-only calls Traefik needs (listing and inspecting containers, events, version). Anything else, such as creating, starting or exec-ing into a container, gets a 403. `socket-proxy` sits on an internal network that only Traefik can reach, and both containers run with a read-only filesystem and no Linux capabilities.
+
+If you use rootless Docker or Podman, set `DOCKER_SOCK` in `.env.prod` to your socket path (for example `/run/user/1000/docker.sock`).
+
 ### Without SSL (HTTP only)
 
 If you don't set `DOMAIN` and `ACME_EMAIL`, FreeFrame runs on **HTTP port 80** only. This is fine for:
