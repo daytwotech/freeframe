@@ -11,11 +11,39 @@
 # ============================================================
 
 services:
+  # Traefik never touches the Docker socket. It reads container labels through
+  # socket-proxy, which only answers the read-only calls Traefik needs (list and
+  # inspect containers, events, version) and refuses everything else, including
+  # creating or starting containers. Before this, a bug in Traefik, which faces the
+  # internet, would have been root on the host.
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:v0.5.0
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      PING: 1
+      VERSION: 1
+      POST: 0
+      # Listen on IPv4 only; the internal network has no IPv6 and some hosts lack it.
+      DISABLE_IPV6: 1
+    volumes:
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:ro
+    networks:
+      - socket-proxy
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /run
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
   traefik:
     image: traefik:v2.11
     command:
       - --api.dashboard=false
       - --providers.docker=true
+      - --providers.docker.endpoint=tcp://socket-proxy:2375
       - --providers.docker.exposedbydefault=false
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
@@ -27,8 +55,17 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:ro
       - letsencrypt:/letsencrypt
+    networks:
+      - default
+      - socket-proxy
+    depends_on:
+      - socket-proxy
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
 
   postgres:
@@ -260,4 +297,9 @@ volumes:
   pgdata:
   redisdata:
   letsencrypt:
+
+networks:
+  # Only traefik and socket-proxy are on this network, and it has no route out.
+  socket-proxy:
+    internal: true
   # miniodata:      # uncomment if you enable the optional self-hosted MinIO service above
